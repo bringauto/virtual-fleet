@@ -1,0 +1,18 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Run VirtualFleetDocker.py as root",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/VirtualFleetDocker.py",
+            "args": ["--json_path", "${workspaceFolder}/config/virtual_fleet_docker.json"],
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "python": "/usr/bin/python3", // Path to your Python interpreter
+            "sudo": true // Run as root
+        }
+    ]
+}

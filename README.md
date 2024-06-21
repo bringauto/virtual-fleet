@@ -1,5 +1,7 @@
 # Virtual fleet
 
+README IS OUTDATED
+
 Virtual fleet provides ability to simulate car movement in bringauto Fleet. Script will run one
 pair of VirtualVehicle and BADaemon for each entry in json and simulate its movement for Fleet.
 
@@ -20,7 +22,8 @@ Script [VirtualFleetDocker.py](VirtualFleetDocker.py) uses docker images to run 
 * `mqtt-port` - port of mqtt broker
 * `daemon-ip` - address, where is ba-daemon listening
 * `vehicles` - array of vehicles to create
-* `vehicles.name` - name of the vehicle, used for mqtt topics - `bringauto/default/<name>/<daemon|industrial_portal>`
+* `vehicles.name` - name of the vehicle, used for mqtt topics, name must be unique and adhere to the regular expression ^[a-z0-9_]*$
+* `bringauto/default/<name>/<daemon|industrial_portal>`
 * `vehicles.docker-map-path` - path to map inside vehicle docker container used for simulation
 * `vehicles.route` - name of route used for simulation, route must exist in given map
 * `vehicles.stop-wait-seconds` - how many seconds should vehicle wait in stop
