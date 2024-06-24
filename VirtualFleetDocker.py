@@ -35,9 +35,11 @@ def check_paths(arguments):
     if not os.path.exists(arguments.json_path):
         raise FileDoesntExistException("Json file " + arguments.json_path + " doesnt exist")
 
+
 def is_port_avialable(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(('localhost', port)) != 0
+        return s.connect_ex(("localhost", port)) != 0
+
 
 def check_vehicles_uniqueness(vehicles):
     vehicle_names = []
@@ -67,6 +69,20 @@ def create_config_files(vehicle):
     with open(os.path.abspath(tmp_config_address), "w") as file:
         json.dump(config, file, indent=4)
 
+    map_address = "./config/virtual-vehicle/map.osm"
+    tmp_map_address = f"./config/tmp-configs/{vehicle['company']}-{vehicle['name']}-map.osm"
+    shutil.copyfile(os.path.abspath(map_address), os.path.abspath(tmp_map_address))
+
+    config_address = "./config/virtual-vehicle/config.json"
+    with open(os.path.abspath(config_address), "r") as file:
+        config = json.load(file)
+    config["fleet-settings"]["internal-protocol-settings"]["device-name"] = vehicle["name"]
+    config["map-settings"]["map"] = f"/virtual-vehicle-utility/config/{vehicle['company']}-{vehicle['name']}-map.osm"
+    tmp_config_address = f"./config/tmp-configs/{vehicle['company']}-{vehicle['name']}-virtual-vehicle.json"
+    with open(os.path.abspath(tmp_config_address), "w") as file:
+        json.dump(config, file, indent=4)
+
+
 
 def run_program(arguments):
     file = open(arguments.json_path)
@@ -80,7 +96,7 @@ def run_program(arguments):
     logging.info("Starting docker containers")
 
     start_mqtt_broker(client, settings)
-    
+
     os.makedirs(os.path.abspath("./config/tmp-configs"), mode=0o777, exist_ok=True)
     for vehicle in settings["vehicles"]:
         while not is_port_avialable(port):
@@ -89,7 +105,7 @@ def run_program(arguments):
 
         if (port <= 1024) or (port > 65535):
             raise PortOutOfRangeException()
-        
+
         logging.info(f"Starting vehicle {vehicle['name']} with port {port}")
         start_containers(client, settings, vehicle, port)
         port += 1
@@ -119,13 +135,15 @@ def start_mqtt_broker(docker_client, settings):
         settings["vernemq-docker-image"] + ":" + settings["vernemq-docker-tag"],
         detach=True,
         auto_remove=False,
+        # network_mode="host",
+        # network="bring-emulator",
         network_mode="host",
         volumes={
             os.path.abspath("./config/vernemq"): {"bind": "/vernemq/etc", "mode": "ro"},
             os.path.abspath("."): {"bind": "/vernemq/log", "mode": "rw"},
         },
     )
-    
+
     logging.info("Started a mqtt broker docker container with id " + mqtt_broker_container.short_id)
     runningContainers.append(mqtt_broker_container)
 
@@ -138,9 +156,11 @@ def start_containers(docker_client, settings, vehicle, port):
         settings["external-server-docker-image"] + ":" + settings["external-server-docker-tag"],
         detach=True,
         auto_remove=False,
+        # network_mode="host",
+        # network="bring-emulator",
         network_mode="host",
         volumes={
-            os.path.abspath("./config/tmp-configs/"): {"bind": "/home/bringauto/config", "mode": "ro"},
+            os.path.abspath("./config/tmp-configs"): {"bind": "/home/bringauto/config", "mode": "ro"},
             os.path.abspath("."): {"bind": "/home/bringauto/log", "mode": "rw"},
         },
         entrypoint=[
@@ -149,16 +169,18 @@ def start_containers(docker_client, settings, vehicle, port):
             f"--config=/home/bringauto/config/{vehicle_id}-external-server-config.json",
         ],
     )
-    logging.info("Started a external server docker container with id " + external_server_container.short_id)
+    logging.info("Started an external server docker container with id " + external_server_container.short_id)
     runningContainers.append(external_server_container)
 
     gateway_container = docker_client.containers.run(
         settings["gateway-docker-image"] + ":" + settings["gateway-docker-tag"],
         detach=True,
         auto_remove=False,
+        # network_mode="host",
+        # network="bring-emulator",
         network_mode="host",
         volumes={
-            os.path.abspath("./config/tmp-configs/"): {"bind": "/home/bringauto/config", "mode": "ro"},
+            os.path.abspath("./config/tmp-configs"): {"bind": "/home/bringauto/config", "mode": "ro"},
             os.path.abspath("."): {"bind": "/gateway/log", "mode": "rw"},
         },
         entrypoint=[
@@ -175,14 +197,16 @@ def start_containers(docker_client, settings, vehicle, port):
         settings["vehicle-docker-image"] + ":" + settings["vehicle-docker-tag"],
         detach=True,
         auto_remove=False,
+        # network_mode="host",
+        # network="bring-emulator",
         network_mode="host",
         volumes={
-            os.path.abspath("./config/virtual-vehicle"): {"bind": "/virtual-vehicle-utility/config", "mode": "ro"},
+            os.path.abspath("./config/tmp-configs"): {"bind": "/virtual-vehicle-utility/config", "mode": "ro"},
             os.path.abspath("."): {"bind": "/virtual-vehicle-utility/log", "mode": "rw"},
         },
         entrypoint=[
             "/virtual-vehicle-utility/bin/virtual-vehicle-utility",
-            "--config=/virtual-vehicle-utility/config/config.json",
+            f"--config=/virtual-vehicle-utility/config/{vehicle_id}-virtual-vehicle.json",
             "--verbose",
             "--module-gateway-ip=" + settings["module-gateway-ip"],
             "--module-gateway-port=" + str(port),

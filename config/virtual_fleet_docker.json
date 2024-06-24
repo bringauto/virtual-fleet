@@ -7,25 +7,11 @@
   "gateway-docker-tag": "v1.1.7",
   "vehicle-docker-image": "bringauto/virtual-vehicle",
   "vehicle-docker-tag": "v3.1.4",
-  "module-gateway-ip": "172.17.0.1",
+  "module-gateway-ip": "0.0.0.0",
   "start-port": 42000,
   "vehicles": [
     {
       "name": "virtual_vehicle_1",
-      "company": "bringauto",
-      "docker-map-path": "/virtual-vehicle-utility/maps/Brno.osm",
-      "stop-wait-seconds": 10,
-      "message-period-millisecond": 1000
-    },    
-    {
-      "name": "virtual_vehicle_2",
-      "company": "bringauto",
-      "docker-map-path": "/virtual-vehicle-utility/maps/Brno.osm",
-      "stop-wait-seconds": 10,
-      "message-period-millisecond": 1000
-    },
-    {
-      "name": "virtual_vehicle_3",
       "company": "bringauto",
       "docker-map-path": "/virtual-vehicle-utility/maps/Brno.osm",
       "stop-wait-seconds": 10,

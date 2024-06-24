@@ -24,7 +24,7 @@
 	"fleet-settings": {
 		"fleet-provider": "internal-protocol",
 		"internal-protocol-settings": {
-			"module-gateway-ip":"module-gateway",
+			"module-gateway-ip":"0.0.0.0",
 			"module-gateway-port": 1636,
 			"device-role": "autonomy",
 			"device-priority": 1,

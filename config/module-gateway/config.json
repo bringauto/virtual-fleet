@@ -4,7 +4,7 @@
     "verbose": true
   },
   "internal-server-settings": {
-    "port": 42000
+    "port": 1636
   },
   "module-paths": {
     "1": "/home/bringauto/modules/mission_module/lib/libmission-module-gateway-shared.so",
@@ -12,7 +12,7 @@
   },
   "external-connection" : {
     "company" : "bringauto",
-    "vehicle-name" : "virtual_vehicle_1",
+    "vehicle-name" : "virtual_vehicle",
     "endpoints" :
     [
       {
