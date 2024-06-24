@@ -8,6 +8,7 @@ import logging
 import os
 import shutil
 import pathlib
+import socket
 
 LOG_LAST_LINES = 5
 runningContainers = []
@@ -34,6 +35,9 @@ def check_paths(arguments):
     if not os.path.exists(arguments.json_path):
         raise FileDoesntExistException("Json file " + arguments.json_path + " doesnt exist")
 
+def is_port_avialable(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('localhost', port)) != 0
 
 def check_vehicles_uniqueness(vehicles):
     vehicle_names = []
@@ -79,8 +83,13 @@ def run_program(arguments):
     
     os.makedirs(os.path.abspath("./config/tmp-configs"), mode=0o777, exist_ok=True)
     for vehicle in settings["vehicles"]:
+        while not is_port_avialable(port):
+            logging.info(f"Port {port} is not available, trying next one")
+            port += 1
+
         if (port <= 1024) or (port > 65535):
             raise PortOutOfRangeException()
+        
         logging.info(f"Starting vehicle {vehicle['name']} with port {port}")
         start_containers(client, settings, vehicle, port)
         port += 1
