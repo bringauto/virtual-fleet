@@ -9,6 +9,7 @@ import os
 import shutil
 import pathlib
 import socket
+from concurrent.futures import ThreadPoolExecutor
 
 LOG_LAST_LINES = 5
 runningContainers = []
@@ -26,14 +27,13 @@ class PortOutOfRangeException(Exception):
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    required_named = parser.add_argument_group("required arguments")
-    required_named.add_argument("--json_path", required=True, help="path to json file")
+    parser.add_argument("--config", default="./config/virtual-fleet-config.json", help="path to json configuration file")
     return parser.parse_args()
 
 
 def check_paths(arguments):
-    if not os.path.exists(arguments.json_path):
-        raise FileDoesntExistException("Json file " + arguments.json_path + " doesnt exist")
+    if not os.path.exists(arguments.config):
+        raise FileDoesntExistException("Json file " + arguments.config + " doesnt exist")
 
 
 def is_port_avialable(port):
@@ -69,23 +69,9 @@ def create_config_files(vehicle):
     with open(os.path.abspath(tmp_config_address), "w") as file:
         json.dump(config, file, indent=4)
 
-    map_address = "./config/virtual-vehicle/map.osm"
-    tmp_map_address = f"./config/tmp-configs/{vehicle['company']}-{vehicle['name']}-map.osm"
-    shutil.copyfile(os.path.abspath(map_address), os.path.abspath(tmp_map_address))
-
-    config_address = "./config/virtual-vehicle/config.json"
-    with open(os.path.abspath(config_address), "r") as file:
-        config = json.load(file)
-    config["fleet-settings"]["internal-protocol-settings"]["device-name"] = vehicle["name"]
-    config["map-settings"]["map"] = f"/virtual-vehicle-utility/config/{vehicle['company']}-{vehicle['name']}-map.osm"
-    tmp_config_address = f"./config/tmp-configs/{vehicle['company']}-{vehicle['name']}-virtual-vehicle.json"
-    with open(os.path.abspath(tmp_config_address), "w") as file:
-        json.dump(config, file, indent=4)
-
-
 
 def run_program(arguments):
-    file = open(arguments.json_path)
+    file = open(arguments.config)
     settings = json.load(file)
     file.close()
 
@@ -97,7 +83,8 @@ def run_program(arguments):
 
     start_mqtt_broker(client, settings)
 
-    os.makedirs(os.path.abspath("./config/tmp-configs"), mode=0o777, exist_ok=True)
+    tmp_config_address = "./config/tmp-configs"
+    os.makedirs(os.path.abspath(tmp_config_address), mode=0o777, exist_ok=True)
     for vehicle in settings["vehicles"]:
         while not is_port_avialable(port):
             logging.info(f"Port {port} is not available, trying next one")
@@ -123,11 +110,7 @@ def run_program(arguments):
         if not end:  # don't want to wait 5 seconds, if containers crash in the beginning
             time.sleep(5)
     stop_containers()
-
-    try:
-        shutil.rmtree(os.path.abspath("./config/tmp-configs"))
-    except OSError as e:
-        logging.error("Error while removing tmp-configs directory: " + str(e))
+    remove_tmp_config_files()
 
 
 def start_mqtt_broker(docker_client, settings):
@@ -135,8 +118,6 @@ def start_mqtt_broker(docker_client, settings):
         settings["vernemq-docker-image"] + ":" + settings["vernemq-docker-tag"],
         detach=True,
         auto_remove=False,
-        # network_mode="host",
-        # network="bring-emulator",
         network_mode="host",
         volumes={
             os.path.abspath("./config/vernemq"): {"bind": "/vernemq/etc", "mode": "ro"},
@@ -156,8 +137,6 @@ def start_containers(docker_client, settings, vehicle, port):
         settings["external-server-docker-image"] + ":" + settings["external-server-docker-tag"],
         detach=True,
         auto_remove=False,
-        # network_mode="host",
-        # network="bring-emulator",
         network_mode="host",
         volumes={
             os.path.abspath("./config/tmp-configs"): {"bind": "/home/bringauto/config", "mode": "ro"},
@@ -176,8 +155,6 @@ def start_containers(docker_client, settings, vehicle, port):
         settings["gateway-docker-image"] + ":" + settings["gateway-docker-tag"],
         detach=True,
         auto_remove=False,
-        # network_mode="host",
-        # network="bring-emulator",
         network_mode="host",
         volumes={
             os.path.abspath("./config/tmp-configs"): {"bind": "/home/bringauto/config", "mode": "ro"},
@@ -197,18 +174,16 @@ def start_containers(docker_client, settings, vehicle, port):
         settings["vehicle-docker-image"] + ":" + settings["vehicle-docker-tag"],
         detach=True,
         auto_remove=False,
-        # network_mode="host",
-        # network="bring-emulator",
         network_mode="host",
         volumes={
-            os.path.abspath("./config/tmp-configs"): {"bind": "/virtual-vehicle-utility/config", "mode": "ro"},
+            os.path.abspath("./config/virtual-vehicle"): {"bind": "/virtual-vehicle-utility/config", "mode": "ro"},
             os.path.abspath("."): {"bind": "/virtual-vehicle-utility/log", "mode": "rw"},
         },
         entrypoint=[
             "/virtual-vehicle-utility/bin/virtual-vehicle-utility",
-            f"--config=/virtual-vehicle-utility/config/{vehicle_id}-virtual-vehicle.json",
+            "--config=/virtual-vehicle-utility/config/config.json",
             "--verbose",
-            "--module-gateway-ip=" + settings["module-gateway-ip"],
+            "--module-gateway-ip=0.0.0.0",
             "--module-gateway-port=" + str(port),
         ],
     )
@@ -222,37 +197,49 @@ def exit_gracefully(signum, frame):
     logging.info("Signal received, quitting")
     try:
         stop_containers()
+        remove_tmp_config_files()
         sys.exit(0)
     except KeyboardInterrupt:
         sys.exit(1)
 
+
+def stop_and_remove_container(container, log_dir):
+    logging.info(
+        "Stopping container with id "
+        + container.short_id
+        + " ["
+        + str(runningContainers.index(container) + 1)
+        + "/"
+        + str(len(runningContainers))
+        + "]"
+    )
+    try:
+        log_filename = f"{container.short_id}.log"
+        with open(log_dir / log_filename, "w") as text_file:
+            text_file.write(f"{container.logs().decode()}")
+        container.stop()
+        container.remove()
+    except docker.errors.NotFound:
+        logging.error("Container " + container.short_id + " was not found")
+    except docker.errors.APIError as e:
+        logging.error("API error while stopping container " + container.short_id + ": " + str(e))
 
 def stop_containers():
     log_dir = pathlib.Path("logs/")
     if log_dir.exists():
         shutil.rmtree(log_dir)
     log_dir.mkdir()
-    for index, container in enumerate(runningContainers):
-        logging.info(
-            "Stopping container with id "
-            + container.short_id
-            + " ["
-            + str(index + 1)
-            + "/"
-            + str(len(runningContainers))
-            + "]"
-        )
-        try:
-            log_filename = f"{container.short_id}.log"
-            with open(log_dir / log_filename, "w") as text_file:
-                text_file.write(f"{container.logs().decode()}")
-            container.stop()
-            container.remove()
-        except docker.errors.NotFound:
-            logging.error("Container " + container.short_id + " was not found")
-        except docker.errors.APIError as e:
-            logging.error("API error while stopping container " + container.short_id + ": " + str(e))
+    
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(stop_and_remove_container, container, log_dir) for container in runningContainers]
+        for future in futures:
+            future.result()  # Wait for all futures to complete
 
+def remove_tmp_config_files():
+    try:
+        shutil.rmtree("./config/tmp-configs")
+    except OSError as e:
+        logging.error("Error while removing tmp-configs directory: " + str(e))
 
 if __name__ == "__main__":
     logging.basicConfig(
