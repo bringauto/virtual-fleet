@@ -36,5 +36,7 @@ Example JSON configuration: [virtual-fleet-config.json](config/virtual-fleet-con
 ## Usage
 
 ```bash
-python3 VirtualFleetDocker.py --config=./config/virtual-fleet-config.json
+sudo python3 VirtualFleetDocker.py --config=./config/virtual-fleet-config.json
 ```
+
+Do not run multiple virtual fleets on the same machine. Since they will share the same MQTT broker, this can lead to conflicts in car names and operational issues.

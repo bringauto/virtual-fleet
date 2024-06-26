@@ -69,6 +69,11 @@ def create_config_files(vehicle):
     with open(os.path.abspath(tmp_config_address), "w") as file:
         json.dump(config, file, indent=4)
 
+def is_container_running(docker_client, image_name):
+    for container in docker_client.containers.list():
+        if image_name in container.image.tags:
+            return container
+    return None
 
 def run_program(arguments):
     file = open(arguments.config)
@@ -114,6 +119,11 @@ def run_program(arguments):
 
 
 def start_mqtt_broker(docker_client, settings):
+    mqtt_broker_container = is_container_running(docker_client, settings["vernemq-docker-image"] + ":" + settings["vernemq-docker-tag"])
+    if mqtt_broker_container:
+        logging.info("Using existing mqtt broker docker container with id " + mqtt_broker_container.short_id)
+        return
+
     mqtt_broker_container = docker_client.containers.run(
         settings["vernemq-docker-image"] + ":" + settings["vernemq-docker-tag"],
         detach=True,
