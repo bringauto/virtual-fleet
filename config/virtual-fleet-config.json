@@ -12,6 +12,14 @@
     {
       "name": "virtual_vehicle_1",
       "company": "bringauto"
+    },
+    {
+      "name": "virtual_vehicle_2",
+      "company": "bringauto"
+    },
+    {
+      "name": "virtual_vehicle_3",
+      "company": "bringauto"
     }
   ]
 }
