@@ -1,71 +1,68 @@
 import argparse
 import json
-import signal
-import sys
-import time
-import docker
 import logging
 import os
-import shutil
 import pathlib
+import shutil
+import signal
 import socket
+import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 
+import docker
+
 LOG_LAST_LINES = 5
+CONFIG_PATH = "./config"
+TMP_CONFIG_PATH = os.path.join(CONFIG_PATH, "tmp-configs")
+EXTERNAL_SERVER_CONFIG = os.path.join(CONFIG_PATH, "external-server/config.json")
+MODULE_GATEWAY_CONFIG = os.path.join(CONFIG_PATH, "module-gateway/config.json")
+VERNEMQ_CONFIG = os.path.join(CONFIG_PATH, "vernemq")
+LOGS_DIR = "logs"
 runningContainers = []
 
-
 class FileDoesntExistException(Exception):
-    def __init__(self, message) -> None:
-        super().__init__(message)
-
+    pass
 
 class PortOutOfRangeException(Exception):
-    def __init__(self, message="Ports out of range, it has to be: 1024 < my port < 65535") -> None:
+    def __init__(self, message="Ports out of range, it has to be: 1024 < my port < 65535"):
         super().__init__(message)
-
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="./config/virtual-fleet-config.json", help="path to json configuration file")
+    parser.add_argument("--config", default=os.path.join(CONFIG_PATH, "virtual-fleet-config.json"), help="path to json configuration file")
     return parser.parse_args()
-
 
 def check_paths(arguments):
     if not os.path.exists(arguments.config):
-        raise FileDoesntExistException("Json file " + arguments.config + " doesnt exist")
+        raise FileDoesntExistException(f"Json file {arguments.config} doesn't exist")
 
-
-def is_port_avialable(port):
+def is_port_available(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(("localhost", port)) != 0
 
-
 def check_vehicles_uniqueness(vehicles):
-    vehicle_names = []
+    vehicle_names = set()
     for vehicle in vehicles:
-        vehicle_id = vehicle["company"] + "-" + vehicle["name"]
+        vehicle_id = f"{vehicle['company']}-{vehicle['name']}"
         if vehicle_id in vehicle_names:
             raise ValueError(f"Vehicle {vehicle_id} is not unique")
-        vehicle_names.append(vehicle_id)
-
+        vehicle_names.add(vehicle_id)
 
 def create_config_files(vehicle):
-    config_address = "./config/external-server/config.json"
-    with open(os.path.abspath(config_address), "r") as file:
+    with open(os.path.abspath(EXTERNAL_SERVER_CONFIG), "r") as file:
         config = json.load(file)
     config["company_name"] = vehicle["company"]
     config["car_name"] = vehicle["name"]
-    tmp_config_address = f"./config/tmp-configs/{vehicle['company']}-{vehicle['name']}-external-server-config.json"
+    tmp_config_address = os.path.join(TMP_CONFIG_PATH, f"{vehicle['company']}-{vehicle['name']}-external-server-config.json")
     with open(os.path.abspath(tmp_config_address), "w") as file:
         json.dump(config, file, indent=4)
 
-    config_address = "./config/module-gateway/config.json"
-    with open(os.path.abspath(config_address), "r") as file:
+    with open(os.path.abspath(MODULE_GATEWAY_CONFIG), "r") as file:
         config = json.load(file)
     config["external-connection"]["company"] = vehicle["company"]
     config["external-connection"]["vehicle-name"] = vehicle["name"]
-    tmp_config_address = f"./config/tmp-configs/{vehicle['company']}-{vehicle['name']}-gateway-config.json"
+    tmp_config_address = os.path.join(TMP_CONFIG_PATH, f"{vehicle['company']}-{vehicle['name']}-gateway-config.json")
     with open(os.path.abspath(tmp_config_address), "w") as file:
         json.dump(config, file, indent=4)
 
@@ -76,9 +73,8 @@ def is_container_running(docker_client, image_name):
     return None
 
 def run_program(arguments):
-    file = open(arguments.config)
-    settings = json.load(file)
-    file.close()
+    with open(arguments.config) as file:
+        settings = json.load(file)
 
     check_vehicles_uniqueness(settings["vehicles"])
 
@@ -86,16 +82,15 @@ def run_program(arguments):
     port = settings["start-port"]
     logging.info("Starting docker containers")
 
-    start_mqtt_broker(client, settings)
+    start_mqtt_broker_container(client, settings)
 
-    tmp_config_address = "./config/tmp-configs"
-    os.makedirs(os.path.abspath(tmp_config_address), mode=0o777, exist_ok=True)
+    os.makedirs(os.path.abspath(TMP_CONFIG_PATH), mode=0o777, exist_ok=True)
     for vehicle in settings["vehicles"]:
-        while not is_port_avialable(port):
+        while not is_port_available(port):
             logging.info(f"Port {port} is not available, trying next one")
             port += 1
 
-        if (port <= 1024) or (port > 65535):
+        if not (1024 < port < 65535):
             raise PortOutOfRangeException()
 
         logging.info(f"Starting vehicle {vehicle['name']} with port {port}")
@@ -117,39 +112,39 @@ def run_program(arguments):
     stop_containers()
     remove_tmp_config_files()
 
-
-def start_mqtt_broker(docker_client, settings):
-    mqtt_broker_container = is_container_running(docker_client, settings["vernemq-docker-image"] + ":" + settings["vernemq-docker-tag"])
+def start_mqtt_broker_container(docker_client, settings):
+    image_tag = f"{settings['vernemq-docker-image']}:{settings['vernemq-docker-tag']}"
+    mqtt_broker_container = is_container_running(docker_client, image_tag)
     if mqtt_broker_container:
-        logging.info("Using existing mqtt broker docker container with id " + mqtt_broker_container.short_id)
+        logging.info(f"Using existing mqtt broker docker container with id {mqtt_broker_container.short_id}")
         return
 
     mqtt_broker_container = docker_client.containers.run(
-        settings["vernemq-docker-image"] + ":" + settings["vernemq-docker-tag"],
+        image_tag,
         detach=True,
         auto_remove=False,
         network_mode="host",
         volumes={
-            os.path.abspath("./config/vernemq"): {"bind": "/vernemq/etc", "mode": "ro"},
+            os.path.abspath(VERNEMQ_CONFIG): {"bind": "/vernemq/etc", "mode": "ro"},
             os.path.abspath("."): {"bind": "/vernemq/log", "mode": "rw"},
         },
     )
 
-    logging.info("Started a mqtt broker docker container with id " + mqtt_broker_container.short_id)
+    logging.info(f"Started a mqtt broker docker container with id {mqtt_broker_container.short_id}")
     runningContainers.append(mqtt_broker_container)
-
 
 def start_containers(docker_client, settings, vehicle, port):
     create_config_files(vehicle)
-    vehicle_id = vehicle["company"] + "-" + vehicle["name"]
+    vehicle_id = f"{vehicle['company']}-{vehicle['name']}"
 
+    external_server_image_tag = f"{settings['external-server-docker-image']}:{settings['external-server-docker-tag']}"
     external_server_container = docker_client.containers.run(
-        settings["external-server-docker-image"] + ":" + settings["external-server-docker-tag"],
+        external_server_image_tag,
         detach=True,
         auto_remove=False,
         network_mode="host",
         volumes={
-            os.path.abspath("./config/tmp-configs"): {"bind": "/home/bringauto/config", "mode": "ro"},
+            os.path.abspath(TMP_CONFIG_PATH): {"bind": "/home/bringauto/config", "mode": "ro"},
             os.path.abspath("."): {"bind": "/home/bringauto/log", "mode": "rw"},
         },
         entrypoint=[
@@ -158,35 +153,37 @@ def start_containers(docker_client, settings, vehicle, port):
             f"--config=/home/bringauto/config/{vehicle_id}-external-server-config.json",
         ],
     )
-    logging.info("Started an external server docker container with id " + external_server_container.short_id)
+    logging.info(f"Started an external server docker container with id {external_server_container.short_id}")
     runningContainers.append(external_server_container)
 
+    gateway_image_tag = f"{settings['gateway-docker-image']}:{settings['gateway-docker-tag']}"
     gateway_container = docker_client.containers.run(
-        settings["gateway-docker-image"] + ":" + settings["gateway-docker-tag"],
+        gateway_image_tag,
         detach=True,
         auto_remove=False,
         network_mode="host",
         volumes={
-            os.path.abspath("./config/tmp-configs"): {"bind": "/home/bringauto/config", "mode": "ro"},
+            os.path.abspath(TMP_CONFIG_PATH): {"bind": "/home/bringauto/config", "mode": "ro"},
             os.path.abspath("."): {"bind": "/gateway/log", "mode": "rw"},
         },
         entrypoint=[
             "/home/bringauto/module-gateway/bin/module-gateway-app",
             f"--config-path=/home/bringauto/config/{vehicle_id}-gateway-config.json",
-            "--port=" + str(port),
+            f"--port={port}",
             "--verbose",
         ],
     )
-    logging.info("Started a gateway docker container with id " + gateway_container.short_id)
+    logging.info(f"Started a gateway docker container with id {gateway_container.short_id}")
     runningContainers.append(gateway_container)
 
+    vehicle_image_tag = f"{settings['vehicle-docker-image']}:{settings['vehicle-docker-tag']}"
     vehicle_container = docker_client.containers.run(
-        settings["vehicle-docker-image"] + ":" + settings["vehicle-docker-tag"],
+        vehicle_image_tag,
         detach=True,
         auto_remove=False,
         network_mode="host",
         volumes={
-            os.path.abspath("./config/virtual-vehicle"): {"bind": "/virtual-vehicle-utility/config", "mode": "ro"},
+            os.path.abspath(os.path.join(CONFIG_PATH, "virtual-vehicle")): {"bind": "/virtual-vehicle-utility/config", "mode": "ro"},
             os.path.abspath("."): {"bind": "/virtual-vehicle-utility/log", "mode": "rw"},
         },
         entrypoint=[
@@ -194,13 +191,12 @@ def start_containers(docker_client, settings, vehicle, port):
             "--config=/virtual-vehicle-utility/config/config.json",
             "--verbose",
             "--module-gateway-ip=0.0.0.0",
-            "--module-gateway-port=" + str(port),
+            f"--module-gateway-port={port}",
         ],
     )
 
-    logging.info("Started a vehicle docker container with id " + vehicle_container.short_id)
+    logging.info(f"Started a vehicle docker container with id {vehicle_container.short_id}")
     runningContainers.append(vehicle_container)
-
 
 def exit_gracefully(signum, frame):
     signal.signal(signal.SIGINT, original_sigint)
@@ -212,30 +208,23 @@ def exit_gracefully(signum, frame):
     except KeyboardInterrupt:
         sys.exit(1)
 
-
 def stop_and_remove_container(container, log_dir):
     logging.info(
-        "Stopping container with id "
-        + container.short_id
-        + " ["
-        + str(runningContainers.index(container) + 1)
-        + "/"
-        + str(len(runningContainers))
-        + "]"
+        f"Stopping container with id {container.short_id} [{runningContainers.index(container) + 1}/{len(runningContainers)}]"
     )
     try:
         log_filename = f"{container.short_id}.log"
         with open(log_dir / log_filename, "w") as text_file:
-            text_file.write(f"{container.logs().decode()}")
+            text_file.write(container.logs().decode())
         container.stop()
         container.remove()
     except docker.errors.NotFound:
-        logging.error("Container " + container.short_id + " was not found")
+        logging.error(f"Container {container.short_id} was not found")
     except docker.errors.APIError as e:
-        logging.error("API error while stopping container " + container.short_id + ": " + str(e))
+        logging.error(f"API error while stopping container {container.short_id}: {str(e)}")
 
 def stop_containers():
-    log_dir = pathlib.Path("logs/")
+    log_dir = pathlib.Path(LOGS_DIR)
     if log_dir.exists():
         shutil.rmtree(log_dir)
     log_dir.mkdir()
@@ -247,9 +236,9 @@ def stop_containers():
 
 def remove_tmp_config_files():
     try:
-        shutil.rmtree("./config/tmp-configs")
+        shutil.rmtree(TMP_CONFIG_PATH)
     except OSError as e:
-        logging.error("Error while removing tmp-configs directory: " + str(e))
+        logging.error(f"Error while removing tmp-configs directory: {str(e)}")
 
 if __name__ == "__main__":
     logging.basicConfig(
