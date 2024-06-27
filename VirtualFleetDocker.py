@@ -253,5 +253,5 @@ if __name__ == "__main__":
         check_paths(args)
         run_program(args)
     except Exception as e:
-        print(f"Main exception: {str(e)}")
+        logging.error(str(e))
         exit_gracefully(None, None)
