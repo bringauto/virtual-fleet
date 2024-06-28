@@ -20,6 +20,22 @@
     {
       "name": "virtual_vehicle_3",
       "company": "bringauto"
+    },
+    {
+      "name": "virtual_vehicle_4",
+      "company": "bringauto"
+    },
+    {
+      "name": "virtual_vehicle_5",
+      "company": "bringauto"
+    },
+    {
+      "name": "virtual_vehicle_6",
+      "company": "bringauto"
+    },
+    {
+      "name": "virtual_vehicle_7",
+      "company": "bringauto"
     }
   ]
 }

@@ -8,38 +8,50 @@ import signal
 import socket
 import sys
 import time
+import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
+
 
 import docker
 
-LOG_LAST_LINES = 5
-CONFIG_PATH = "./config"
-TMP_CONFIG_PATH = os.path.join(CONFIG_PATH, "tmp-configs")
-EXTERNAL_SERVER_CONFIG = os.path.join(CONFIG_PATH, "external-server/config.json")
-MODULE_GATEWAY_CONFIG = os.path.join(CONFIG_PATH, "module-gateway/config.json")
-VERNEMQ_CONFIG = os.path.join(CONFIG_PATH, "vernemq")
+NUMBER_OF_LOG_LAST_LINES_TO_SHOW = 5
+CONFIG_DIR = "./config"
+TMP_CONFIG_DIR = os.path.join(CONFIG_DIR, "tmp-configs")
+EXTERNAL_SERVER_CONFIG = os.path.join(CONFIG_DIR, "external-server/config.json")
+MODULE_GATEWAY_CONFIG = os.path.join(CONFIG_DIR, "module-gateway/config.json")
+VERNEMQ_CONFIG = os.path.join(CONFIG_DIR, "vernemq")
 LOGS_DIR = "logs"
-runningContainers = []
+running_containers = []
+
 
 class FileDoesntExistException(Exception):
     pass
+
 
 class PortOutOfRangeException(Exception):
     def __init__(self, message="Ports out of range, it has to be: 1024 < my port < 65535"):
         super().__init__(message)
 
+
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default=os.path.join(CONFIG_PATH, "virtual-fleet-config.json"), help="path to json configuration file")
+    parser.add_argument(
+        "--config",
+        default=os.path.join(CONFIG_DIR, "virtual-fleet-config.json"),
+        help="path to json configuration file",
+    )
     return parser.parse_args()
+
 
 def check_paths(arguments):
     if not os.path.exists(arguments.config):
         raise FileDoesntExistException(f"Json file {arguments.config} doesn't exist")
 
+
 def is_port_available(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(("localhost", port)) != 0
+
 
 def check_vehicles_uniqueness(vehicles):
     vehicle_names = set()
@@ -49,12 +61,15 @@ def check_vehicles_uniqueness(vehicles):
             raise ValueError(f"Vehicle {vehicle_id} is not unique")
         vehicle_names.add(vehicle_id)
 
+
 def create_config_files(vehicle):
     with open(os.path.abspath(EXTERNAL_SERVER_CONFIG), "r") as file:
         config = json.load(file)
     config["company_name"] = vehicle["company"]
     config["car_name"] = vehicle["name"]
-    tmp_config_address = os.path.join(TMP_CONFIG_PATH, f"{vehicle['company']}-{vehicle['name']}-external-server-config.json")
+    tmp_config_address = os.path.join(
+        TMP_CONFIG_DIR, f"{vehicle['company']}-{vehicle['name']}-external-server-config.json"
+    )
     with open(os.path.abspath(tmp_config_address), "w") as file:
         json.dump(config, file, indent=4)
 
@@ -62,9 +77,10 @@ def create_config_files(vehicle):
         config = json.load(file)
     config["external-connection"]["company"] = vehicle["company"]
     config["external-connection"]["vehicle-name"] = vehicle["name"]
-    tmp_config_address = os.path.join(TMP_CONFIG_PATH, f"{vehicle['company']}-{vehicle['name']}-gateway-config.json")
+    tmp_config_address = os.path.join(TMP_CONFIG_DIR, f"{vehicle['company']}-{vehicle['name']}-gateway-config.json")
     with open(os.path.abspath(tmp_config_address), "w") as file:
         json.dump(config, file, indent=4)
+
 
 def is_container_running(docker_client, image_name):
     for container in docker_client.containers.list():
@@ -72,11 +88,23 @@ def is_container_running(docker_client, image_name):
             return container
     return None
 
-def run_program(arguments):
-    with open(arguments.config) as file:
-        settings = json.load(file)
 
+def process_arguments():
+    args = parse_arguments()
+    check_paths(args)
+
+    with open(args.config) as file:
+        return json.load(file)
+
+
+def initialize_program(settings):
     check_vehicles_uniqueness(settings["vehicles"])
+    os.makedirs(os.path.abspath(TMP_CONFIG_DIR), mode=0o777, exist_ok=True)
+    for vehicle in settings["vehicles"]:
+        create_config_files(vehicle)
+
+
+def run_program(settings):
 
     client = docker.from_env()
     port = settings["start-port"]
@@ -84,7 +112,6 @@ def run_program(arguments):
 
     start_mqtt_broker_container(client, settings)
 
-    os.makedirs(os.path.abspath(TMP_CONFIG_PATH), mode=0o777, exist_ok=True)
     for vehicle in settings["vehicles"]:
         while not is_port_available(port):
             logging.info(f"Port {port} is not available, trying next one")
@@ -100,17 +127,18 @@ def run_program(arguments):
     logging.info("Start was successful")
     end = False
     while not end:
-        for container in runningContainers:
+        for container in running_containers:
             container.reload()
             if not container.attrs["State"]["Running"]:
                 logging.info(
-                    f"Error, container with id {container.short_id} is not running, app will exit, container output: \n ==== \n{container.logs(tail=LOG_LAST_LINES).decode()} \n ==== \n"
+                    f"Error, container with id {container.short_id} is not running, app will exit, container output: \n ==== \n{container.logs(tail=NUMBER_OF_LOG_LAST_LINES_TO_SHOW).decode()} \n ==== \n"
                 )
                 end = True
         if not end:  # don't want to wait 5 seconds, if containers crash in the beginning
             time.sleep(5)
     stop_containers()
     remove_tmp_config_files()
+
 
 def start_mqtt_broker_container(docker_client, settings):
     image_tag = f"{settings['vernemq-docker-image']}:{settings['vernemq-docker-tag']}"
@@ -126,15 +154,15 @@ def start_mqtt_broker_container(docker_client, settings):
         network_mode="host",
         volumes={
             os.path.abspath(VERNEMQ_CONFIG): {"bind": "/vernemq/etc", "mode": "ro"},
-            os.path.abspath("."): {"bind": "/vernemq/log", "mode": "rw"},
+            os.path.abspath(LOGS_DIR): {"bind": "/vernemq/log", "mode": "rw"},
         },
     )
 
     logging.info(f"Started a mqtt broker docker container with id {mqtt_broker_container.short_id}")
-    runningContainers.append(mqtt_broker_container)
+    running_containers.append(mqtt_broker_container)
+
 
 def start_containers(docker_client, settings, vehicle, port):
-    create_config_files(vehicle)
     vehicle_id = f"{vehicle['company']}-{vehicle['name']}"
 
     external_server_image_tag = f"{settings['external-server-docker-image']}:{settings['external-server-docker-tag']}"
@@ -144,8 +172,8 @@ def start_containers(docker_client, settings, vehicle, port):
         auto_remove=False,
         network_mode="host",
         volumes={
-            os.path.abspath(TMP_CONFIG_PATH): {"bind": "/home/bringauto/config", "mode": "ro"},
-            os.path.abspath("."): {"bind": "/home/bringauto/log", "mode": "rw"},
+            os.path.abspath(TMP_CONFIG_DIR): {"bind": "/home/bringauto/config", "mode": "ro"},
+            os.path.abspath(LOGS_DIR): {"bind": "/home/bringauto/log", "mode": "rw"},
         },
         entrypoint=[
             "python3",
@@ -154,7 +182,7 @@ def start_containers(docker_client, settings, vehicle, port):
         ],
     )
     logging.info(f"Started an external server docker container with id {external_server_container.short_id}")
-    runningContainers.append(external_server_container)
+    running_containers.append(external_server_container)
 
     gateway_image_tag = f"{settings['gateway-docker-image']}:{settings['gateway-docker-tag']}"
     gateway_container = docker_client.containers.run(
@@ -163,8 +191,8 @@ def start_containers(docker_client, settings, vehicle, port):
         auto_remove=False,
         network_mode="host",
         volumes={
-            os.path.abspath(TMP_CONFIG_PATH): {"bind": "/home/bringauto/config", "mode": "ro"},
-            os.path.abspath("."): {"bind": "/gateway/log", "mode": "rw"},
+            os.path.abspath(TMP_CONFIG_DIR): {"bind": "/home/bringauto/config", "mode": "ro"},
+            os.path.abspath(LOGS_DIR): {"bind": "/gateway/log", "mode": "rw"},
         },
         entrypoint=[
             "/home/bringauto/module-gateway/bin/module-gateway-app",
@@ -174,7 +202,7 @@ def start_containers(docker_client, settings, vehicle, port):
         ],
     )
     logging.info(f"Started a gateway docker container with id {gateway_container.short_id}")
-    runningContainers.append(gateway_container)
+    running_containers.append(gateway_container)
 
     vehicle_image_tag = f"{settings['vehicle-docker-image']}:{settings['vehicle-docker-tag']}"
     vehicle_container = docker_client.containers.run(
@@ -183,8 +211,11 @@ def start_containers(docker_client, settings, vehicle, port):
         auto_remove=False,
         network_mode="host",
         volumes={
-            os.path.abspath(os.path.join(CONFIG_PATH, "virtual-vehicle")): {"bind": "/virtual-vehicle-utility/config", "mode": "ro"},
-            os.path.abspath("."): {"bind": "/virtual-vehicle-utility/log", "mode": "rw"},
+            os.path.abspath(os.path.join(CONFIG_DIR, "virtual-vehicle")): {
+                "bind": "/virtual-vehicle-utility/config",
+                "mode": "ro",
+            },
+            os.path.abspath(LOGS_DIR): {"bind": "/virtual-vehicle-utility/log", "mode": "rw"},
         },
         entrypoint=[
             "/virtual-vehicle-utility/bin/virtual-vehicle-utility",
@@ -196,11 +227,13 @@ def start_containers(docker_client, settings, vehicle, port):
     )
 
     logging.info(f"Started a vehicle docker container with id {vehicle_container.short_id}")
-    runningContainers.append(vehicle_container)
+    running_containers.append(vehicle_container)
+
 
 def exit_gracefully(signum, frame):
-    signal.signal(signal.SIGINT, original_sigint)
-    logging.info("Signal received, quitting")
+    if signum is not None:
+        logging.info(f"Received signal {signum}, stopping containers, removing tmp-configs directory and exiting...")
+
     try:
         stop_containers()
         remove_tmp_config_files()
@@ -208,9 +241,10 @@ def exit_gracefully(signum, frame):
     except KeyboardInterrupt:
         sys.exit(1)
 
+
 def stop_and_remove_container(container, log_dir):
     logging.info(
-        f"Stopping container with id {container.short_id} [{runningContainers.index(container) + 1}/{len(runningContainers)}]"
+        f"Stopping container with id {container.short_id} [{running_containers.index(container) + 1}/{len(running_containers)}]"
     )
     try:
         log_filename = f"{container.short_id}.log"
@@ -223,22 +257,27 @@ def stop_and_remove_container(container, log_dir):
     except docker.errors.APIError as e:
         logging.error(f"API error while stopping container {container.short_id}: {str(e)}")
 
+
 def stop_containers():
     log_dir = pathlib.Path(LOGS_DIR)
     if log_dir.exists():
         shutil.rmtree(log_dir)
     log_dir.mkdir()
-    
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(stop_and_remove_container, container, log_dir) for container in runningContainers]
+
+    # run it with 75% of available cores but at least 1
+    num_workers = max(1, int(multiprocessing.cpu_count() * 0.75))
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        futures = [executor.submit(stop_and_remove_container, container, log_dir) for container in running_containers]
         for future in futures:
             future.result()  # Wait for all futures to complete
 
+
 def remove_tmp_config_files():
     try:
-        shutil.rmtree(TMP_CONFIG_PATH)
+        shutil.rmtree(TMP_CONFIG_DIR)
     except OSError as e:
         logging.error(f"Error while removing tmp-configs directory: {str(e)}")
+
 
 if __name__ == "__main__":
     logging.basicConfig(
@@ -248,10 +287,11 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, exit_gracefully)
     signal.signal(signal.SIGTERM, exit_gracefully)
 
-    args = parse_arguments()
     try:
-        check_paths(args)
-        run_program(args)
+        settings = process_arguments()
+        initialize_program(settings)
+        run_program(settings)
+
     except Exception as e:
         logging.error(str(e))
         exit_gracefully(None, None)
