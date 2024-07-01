@@ -236,15 +236,14 @@ def start_containers(docker_client, settings, vehicle, port):
     running_containers.append(vehicle_container)
 
 
-def exit_gracefully(signum, frame):
-    if signum is not None:
-        logging.info(f"Received signal {signum}, stopping containers, removing tmp-configs directory and exiting...")
-
+def exit_gracefully():
+    logging.info(f"Stopping containers, removing tmp-configs directory and exiting...")
     try:
         stop_containers()
         remove_tmp_config_files()
         sys.exit(0)
-    except KeyboardInterrupt:
+    except Exception as e:
+        logging.error(f"An error occurred: {str(e)}")
         sys.exit(1)
 
 
@@ -262,7 +261,9 @@ def stop_and_remove_container(container, log_dir):
     except docker.errors.NotFound:
         logging.error(f"Container {container_name} with id {container.short_id} was not found")
     except docker.errors.APIError as e:
-        logging.error(f"API error while stopping container {container_name} with id {container.short_id}: {str(e)}. Retrying...")
+        logging.error(
+            f"API error while stopping container {container_name} with id {container.short_id}: {str(e)}. Retrying..."
+        )
         try:
             container.stop()
             container.remove()
@@ -295,15 +296,14 @@ if __name__ == "__main__":
     logging.basicConfig(
         format="[%(asctime)s] [%(levelname)s] %(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S"
     )
-    original_sigint = signal.getsignal(signal.SIGINT)
-    signal.signal(signal.SIGINT, exit_gracefully)
-    signal.signal(signal.SIGTERM, exit_gracefully)
-
     try:
         settings = process_arguments()
         initialize_program(settings)
         run_program(settings)
 
+    except KeyboardInterrupt:
+        logging.info("Received keyboard interrupt.")
     except Exception as e:
         logging.error(f"An error occurred: {str(e)}")
-        exit_gracefully(None, None)
+    finally:
+        exit_gracefully()
