@@ -22,6 +22,7 @@ MODULE_GATEWAY_CONFIG = os.path.join(CONFIG_DIR, "module-gateway/config.json")
 VERNEMQ_CONFIG = os.path.join(CONFIG_DIR, "vernemq")
 LOGS_DIR = "logs"
 running_containers = []
+container_id_name_dictionary = {}
 
 
 class FileDoesntExistException(Exception):
@@ -159,6 +160,7 @@ def start_mqtt_broker_container(docker_client, settings):
     )
 
     logging.info(f"Started a mqtt broker docker container with id {mqtt_broker_container.short_id}")
+    container_id_name_dictionary[mqtt_broker_container.short_id] = "mqtt-broker"
     running_containers.append(mqtt_broker_container)
 
 
@@ -182,6 +184,7 @@ def start_containers(docker_client, settings, vehicle, port):
         ],
     )
     logging.info(f"Started an external server docker container with id {external_server_container.short_id}")
+    container_id_name_dictionary[external_server_container.short_id] = f"{vehicle_id}-external-server"
     running_containers.append(external_server_container)
 
     gateway_image_tag = f"{settings['gateway-docker-image']}:{settings['gateway-docker-tag']}"
@@ -202,6 +205,7 @@ def start_containers(docker_client, settings, vehicle, port):
         ],
     )
     logging.info(f"Started a gateway docker container with id {gateway_container.short_id}")
+    container_id_name_dictionary[gateway_container.short_id] = f"{vehicle_id}-module-gateway"
     running_containers.append(gateway_container)
 
     vehicle_image_tag = f"{settings['vehicle-docker-image']}:{settings['vehicle-docker-tag']}"
@@ -227,6 +231,7 @@ def start_containers(docker_client, settings, vehicle, port):
     )
 
     logging.info(f"Started a vehicle docker container with id {vehicle_container.short_id}")
+    container_id_name_dictionary[vehicle_container.short_id] = f"{vehicle_id}-virtual-vehicle"
     running_containers.append(vehicle_container)
 
 
@@ -243,19 +248,20 @@ def exit_gracefully(signum, frame):
 
 
 def stop_and_remove_container(container, log_dir):
+    container_name = container_id_name_dictionary[container.short_id]
     logging.info(
-        f"Stopping container with id {container.short_id} [{running_containers.index(container) + 1}/{len(running_containers)}]"
+        f"Stopping container {container_name} with id {container.short_id} [{running_containers.index(container) + 1}/{len(running_containers)}]"
     )
     try:
-        log_filename = f"{container.short_id}.log"
+        log_filename = f"{container_name}-{container.short_id}.log"
         with open(log_dir / log_filename, "w") as text_file:
             text_file.write(container.logs().decode())
         container.stop()
         container.remove()
     except docker.errors.NotFound:
-        logging.error(f"Container {container.short_id} was not found")
+        logging.error(f"Container {container_name} with id {container.short_id} was not found")
     except docker.errors.APIError as e:
-        logging.error(f"API error while stopping container {container.short_id}: {str(e)}")
+        logging.error(f"API error while stopping container {container_name} with id {container.short_id}: {str(e)}")
 
 
 def stop_containers():
