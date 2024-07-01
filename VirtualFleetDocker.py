@@ -64,7 +64,7 @@ def check_vehicles_uniqueness(vehicles):
 
 
 def create_config_files(vehicle):
-    with open(os.path.abspath(EXTERNAL_SERVER_CONFIG), "r") as file:
+    with open(os.path.abspath(EXTERNAL_SERVER_CONFIG)) as file:
         config = json.load(file)
     config["company_name"] = vehicle["company"]
     config["car_name"] = vehicle["name"]
@@ -74,7 +74,7 @@ def create_config_files(vehicle):
     with open(os.path.abspath(tmp_config_path), "w") as file:
         json.dump(config, file, indent=4)
 
-    with open(os.path.abspath(MODULE_GATEWAY_CONFIG), "r") as file:
+    with open(os.path.abspath(MODULE_GATEWAY_CONFIG)) as file:
         config = json.load(file)
     config["external-connection"]["company"] = vehicle["company"]
     config["external-connection"]["vehicle-name"] = vehicle["name"]
@@ -262,13 +262,18 @@ def stop_and_remove_container(container, log_dir):
     except docker.errors.NotFound:
         logging.error(f"Container {container_name} with id {container.short_id} was not found")
     except docker.errors.APIError as e:
-        logging.error(f"API error while stopping container {container_name} with id {container.short_id}: {str(e)}")
+        logging.error(f"API error while stopping container {container_name} with id {container.short_id}: {str(e)}. Retrying...")
+        try:
+            container.stop()
+            container.remove()
+        except docker.errors.APIError as retry_e:
+            logging.error(f"Retry failed: {str(retry_e)}")
 
 
 def stop_containers():
     log_dir = pathlib.Path(LOGS_DIR)
     if log_dir.exists():
-        shutil.rmtree(log_dir)
+        shutil.rmtree(log_dir, ignore_errors=True)
     log_dir.mkdir()
 
     # run it with 75% of available cores but at least 1
@@ -281,9 +286,9 @@ def stop_containers():
 
 def remove_tmp_config_files():
     try:
-        shutil.rmtree(TMP_CONFIG_DIR)
+        shutil.rmtree(TMP_CONFIG_DIR, ignore_errors=True)
     except OSError as e:
-        logging.error(f"Error while removing tmp-configs directory: {str(e)}")
+        logging.error(f"Error while removing tmp-configs directory {TMP_CONFIG_DIR}: {str(e)}")
 
 
 if __name__ == "__main__":
@@ -300,5 +305,5 @@ if __name__ == "__main__":
         run_program(settings)
 
     except Exception as e:
-        logging.error(str(e))
+        logging.error(f"An error occurred: {str(e)}")
         exit_gracefully(None, None)
