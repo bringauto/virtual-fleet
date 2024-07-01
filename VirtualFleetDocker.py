@@ -68,18 +68,18 @@ def create_config_files(vehicle):
         config = json.load(file)
     config["company_name"] = vehicle["company"]
     config["car_name"] = vehicle["name"]
-    tmp_config_address = os.path.join(
+    tmp_config_path = os.path.join(
         TMP_CONFIG_DIR, f"{vehicle['company']}-{vehicle['name']}-external-server-config.json"
     )
-    with open(os.path.abspath(tmp_config_address), "w") as file:
+    with open(os.path.abspath(tmp_config_path), "w") as file:
         json.dump(config, file, indent=4)
 
     with open(os.path.abspath(MODULE_GATEWAY_CONFIG), "r") as file:
         config = json.load(file)
     config["external-connection"]["company"] = vehicle["company"]
     config["external-connection"]["vehicle-name"] = vehicle["name"]
-    tmp_config_address = os.path.join(TMP_CONFIG_DIR, f"{vehicle['company']}-{vehicle['name']}-gateway-config.json")
-    with open(os.path.abspath(tmp_config_address), "w") as file:
+    tmp_config_path = os.path.join(TMP_CONFIG_DIR, f"{vehicle['company']}-{vehicle['name']}-gateway-config.json")
+    with open(os.path.abspath(tmp_config_path), "w") as file:
         json.dump(config, file, indent=4)
 
 
@@ -131,8 +131,9 @@ def run_program(settings):
         for container in running_containers:
             container.reload()
             if not container.attrs["State"]["Running"]:
+                container_name = container_id_name_dictionary[container.short_id]
                 logging.info(
-                    f"Error, container with id {container.short_id} is not running, app will exit, container output: \n ==== \n{container.logs(tail=NUMBER_OF_LOG_LAST_LINES_TO_SHOW).decode()} \n ==== \n"
+                    f"Error, container {container_name} with id {container.short_id} is not running, app will exit, container output: \n ==== \n{container.logs(tail=NUMBER_OF_LOG_LAST_LINES_TO_SHOW).decode()} \n ==== \n"
                 )
                 end = True
         if not end:  # don't want to wait 5 seconds, if containers crash in the beginning
