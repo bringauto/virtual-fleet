@@ -322,7 +322,7 @@ def remove_tmp_config_files():
 
 
 def exit_gracefully():
-    logging.info(f"Stopping containers, removing tmp-configs directory and exiting...")
+    logging.info("Stopping containers, removing tmp-configs directory and exiting...")
     try:
         stop_containers()
         remove_tmp_config_files()

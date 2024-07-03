@@ -1,6 +1,6 @@
 # Virtual fleet
 
-Virtual fleet provides ability to simulate movement of multiple vehicles. Script will run one MQTT broker using VerneMQ and will launch a virtual vehicle, a module gateway, and an external server for each entry in the configuration JSON.
+The virtual fleet provides the ability to simulate the movement of multiple vehicles. The script will run one MQTT broker using VerneMQ and will launch a virtual vehicle, a module gateway, and an external server for each entry in the configuration JSON
 
 ## Installation
 
