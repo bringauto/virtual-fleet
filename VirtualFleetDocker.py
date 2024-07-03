@@ -1,18 +1,17 @@
-import argparse
-import json
-import logging
 import os
-import pathlib
-import shutil
-import signal
-import socket
 import sys
+import json
 import time
+import socket
+import shutil
+import logging
+import pathlib
+import argparse
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 
-
 import docker
+from docker.models.containers import Container
 
 NUMBER_OF_LOG_LAST_LINES_TO_SHOW = 5
 CONFIG_DIR = "./config"
@@ -21,8 +20,9 @@ EXTERNAL_SERVER_CONFIG = os.path.join(CONFIG_DIR, "external-server/config.json")
 MODULE_GATEWAY_CONFIG = os.path.join(CONFIG_DIR, "module-gateway/config.json")
 VERNEMQ_CONFIG = os.path.join(CONFIG_DIR, "vernemq")
 LOGS_DIR = "logs"
-running_containers = []
-container_id_name_dictionary = {}
+
+running_containers: list[Container] = []
+container_id_name_dictionary: dict[str, str] = {}
 
 
 class FileDoesntExistException(Exception):
@@ -90,6 +90,21 @@ def is_container_running(docker_client, image_name):
     return None
 
 
+def stop_running_containers(image_names):
+    """
+    Stops and removes Docker containers based on the provided image names.
+    """
+    if not image_names:
+        return
+    docker_client = docker.from_env()
+    for container in docker_client.containers.list():
+        if container.image.tags and any(image_name in container.image.tags[0] for image_name in image_names):
+            logging.info(f"Stopping and removing container {container.image.tags[0]} with id {container.short_id}")
+            container.stop()
+            container.remove()
+    docker_client.close()
+
+
 def process_arguments():
     args = parse_arguments()
     check_paths(args)
@@ -99,6 +114,16 @@ def process_arguments():
 
 
 def initialize_program(settings):
+    if settings["stop-running-containers"]:
+        stop_running_containers(
+            [
+                f"{settings['external-server-docker-image']}:",
+                f"{settings['gateway-docker-image']}:",
+                f"{settings['vehicle-docker-image']}:",
+                f"{settings['vernemq-docker-image']}:",
+            ]
+        )
+
     check_vehicles_uniqueness(settings["vehicles"])
     os.makedirs(os.path.abspath(TMP_CONFIG_DIR), mode=0o777, exist_ok=True)
     for vehicle in settings["vehicles"]:
@@ -106,11 +131,9 @@ def initialize_program(settings):
 
 
 def run_program(settings):
-
     client = docker.from_env()
     port = settings["start-port"]
     logging.info("Starting docker containers")
-
     start_mqtt_broker_container(client, settings)
 
     for vehicle in settings["vehicles"]:

@@ -29,6 +29,7 @@ The JSON configuration file should contain the following fields:
 * **`vehicle-docker-image`**: Virtual vehicle docker image name/address
 * **`vehicle-docker-tag`**: Virtual vehicle image tag
 * **`start-port`**: Starting port used for communication between virtual vehicles and their module gateway. The port will be iterated, so 8 virtual vehicles will use ports 42000 - 42007. If a port is already used by another program, it will skip it and try the next one.
+* **`stop-running-containers`**: If set to `true`, all running containers used by the virtual fleet will be stopped and removed. If set to `false`, the script will run alongside the already running containers, which may cause vehicles to exhibit undefined behavior. Default is `true`.
 * **`vehicles`**: Array of vehicles to create
   * **`vehicles.name`**: Name of the vehicle. The name must be unique and adhere to the regular expression `^[a-z0-9_]*$`
   * **`vehicles.company`**: Name of the company that runs the vehicle. The name must adhere to the regular expression `^[a-z0-9_]*$`

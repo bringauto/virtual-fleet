@@ -8,6 +8,7 @@
   "vehicle-docker-image": "bringauto/virtual-vehicle",
   "vehicle-docker-tag": "v3.1.4",
   "start-port": 42000,
+  "stop-running-containers": true,
   "vehicles": [
     {
       "name": "virtual_vehicle_1",
