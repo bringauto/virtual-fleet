@@ -49,11 +49,6 @@ def check_paths(arguments):
         raise FileDoesntExistException(f"Json file {arguments.config} doesn't exist")
 
 
-def is_port_available(port):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(("localhost", port)) != 0
-
-
 def check_vehicles_uniqueness(vehicles):
     vehicle_names = set()
     for vehicle in vehicles:
@@ -78,16 +73,19 @@ def create_config_files(vehicle):
         config = json.load(file)
     config["external-connection"]["company"] = vehicle["company"]
     config["external-connection"]["vehicle-name"] = vehicle["name"]
-    tmp_config_path = os.path.join(TMP_CONFIG_DIR, f"{vehicle['company']}-{vehicle['name']}-gateway-config.json")
+    tmp_config_path = os.path.join(
+        TMP_CONFIG_DIR, f"{vehicle['company']}-{vehicle['name']}-gateway-config.json"
+    )
     with open(os.path.abspath(tmp_config_path), "w") as file:
         json.dump(config, file, indent=4)
 
 
-def is_container_running(docker_client, image_name):
-    for container in docker_client.containers.list():
-        if image_name in container.image.tags:
-            return container
-    return None
+def process_arguments():
+    args = parse_arguments()
+    check_paths(args)
+
+    with open(args.config) as file:
+        return json.load(file)
 
 
 def stop_running_containers(image_names):
@@ -98,19 +96,20 @@ def stop_running_containers(image_names):
         return
     docker_client = docker.from_env()
     for container in docker_client.containers.list():
-        if container.image.tags and any(image_name in container.image.tags[0] for image_name in image_names):
-            logging.info(f"Stopping and removing container {container.image.tags[0]} with id {container.short_id}")
+        if container.image.tags and any(
+            image_name in container.image.tags[0] for image_name in image_names
+        ):
+            logging.info(
+                f"Stopping and removing container {container.image.tags[0]} with id {container.short_id}"
+            )
             container.stop()
             container.remove()
     docker_client.close()
 
 
-def process_arguments():
-    args = parse_arguments()
-    check_paths(args)
-
-    with open(args.config) as file:
-        return json.load(file)
+def is_port_available(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("localhost", port)) != 0
 
 
 def initialize_program(settings):
@@ -165,11 +164,20 @@ def run_program(settings):
     remove_tmp_config_files()
 
 
+def is_container_running(docker_client, image_name):
+    for container in docker_client.containers.list():
+        if image_name in container.image.tags:
+            return container
+    return None
+
+
 def start_mqtt_broker_container(docker_client, settings):
     image_tag = f"{settings['vernemq-docker-image']}:{settings['vernemq-docker-tag']}"
     mqtt_broker_container = is_container_running(docker_client, image_tag)
     if mqtt_broker_container:
-        logging.info(f"Using existing mqtt broker docker container with id {mqtt_broker_container.short_id}")
+        logging.info(
+            f"Using existing mqtt broker docker container with id {mqtt_broker_container.short_id}"
+        )
         return
 
     mqtt_broker_container = docker_client.containers.run(
@@ -191,7 +199,9 @@ def start_mqtt_broker_container(docker_client, settings):
 def start_containers(docker_client, settings, vehicle, port):
     vehicle_id = f"{vehicle['company']}-{vehicle['name']}"
 
-    external_server_image_tag = f"{settings['external-server-docker-image']}:{settings['external-server-docker-tag']}"
+    external_server_image_tag = (
+        f"{settings['external-server-docker-image']}:{settings['external-server-docker-tag']}"
+    )
     external_server_container = docker_client.containers.run(
         external_server_image_tag,
         detach=True,
@@ -207,8 +217,12 @@ def start_containers(docker_client, settings, vehicle, port):
             f"--config=/home/bringauto/config/{vehicle_id}-external-server-config.json",
         ],
     )
-    logging.info(f"Started an external server docker container with id {external_server_container.short_id}")
-    container_id_name_dictionary[external_server_container.short_id] = f"{vehicle_id}-external-server"
+    logging.info(
+        f"Started an external server docker container with id {external_server_container.short_id}"
+    )
+    container_id_name_dictionary[external_server_container.short_id] = (
+        f"{vehicle_id}-external-server"
+    )
     running_containers.append(external_server_container)
 
     gateway_image_tag = f"{settings['gateway-docker-image']}:{settings['gateway-docker-tag']}"
@@ -259,17 +273,6 @@ def start_containers(docker_client, settings, vehicle, port):
     running_containers.append(vehicle_container)
 
 
-def exit_gracefully():
-    logging.info(f"Stopping containers, removing tmp-configs directory and exiting...")
-    try:
-        stop_containers()
-        remove_tmp_config_files()
-        sys.exit(0)
-    except Exception as e:
-        logging.error(f"An error occurred: {str(e)}")
-        sys.exit(1)
-
-
 def stop_and_remove_container(container, log_dir):
     container_name = container_id_name_dictionary[container.short_id]
     logging.info(
@@ -303,7 +306,10 @@ def stop_containers():
     # run it with 75% of available cores but at least 1
     num_workers = max(1, int(multiprocessing.cpu_count() * 0.75))
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futures = [executor.submit(stop_and_remove_container, container, log_dir) for container in running_containers]
+        futures = [
+            executor.submit(stop_and_remove_container, container, log_dir)
+            for container in running_containers
+        ]
         for future in futures:
             future.result()  # Wait for all futures to complete
 
@@ -315,9 +321,22 @@ def remove_tmp_config_files():
         logging.error(f"Error while removing tmp-configs directory {TMP_CONFIG_DIR}: {str(e)}")
 
 
+def exit_gracefully():
+    logging.info(f"Stopping containers, removing tmp-configs directory and exiting...")
+    try:
+        stop_containers()
+        remove_tmp_config_files()
+        sys.exit(0)
+    except Exception as e:
+        logging.error(f"An error occurred: {str(e)}")
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     logging.basicConfig(
-        format="[%(asctime)s] [%(levelname)s] %(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S"
+        format="[%(asctime)s] [%(levelname)s] %(message)s",
+        level=logging.INFO,
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
     try:
         settings = process_arguments()
