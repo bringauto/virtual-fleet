@@ -164,7 +164,7 @@ def run_program(settings):
     remove_tmp_config_files()
 
 
-def is_container_running(docker_client, image_name):
+def get_container_if_running(docker_client, image_name):
     for container in docker_client.containers.list():
         if image_name in container.image.tags:
             return container
@@ -172,8 +172,8 @@ def is_container_running(docker_client, image_name):
 
 
 def start_mqtt_broker_container(docker_client, settings):
-    image_tag = f"{settings['vernemq-docker-image']}:{settings['vernemq-docker-tag']}"
-    mqtt_broker_container = is_container_running(docker_client, image_tag)
+    image_full_name = f"{settings['vernemq-docker-image']}:{settings['vernemq-docker-tag']}"
+    mqtt_broker_container = get_container_if_running(docker_client, image_full_name)
     if mqtt_broker_container:
         logging.info(
             f"Using existing mqtt broker docker container with id {mqtt_broker_container.short_id}"
@@ -181,7 +181,7 @@ def start_mqtt_broker_container(docker_client, settings):
         return
 
     mqtt_broker_container = docker_client.containers.run(
-        image_tag,
+        image_full_name,
         detach=True,
         auto_remove=False,
         network_mode="host",
@@ -199,11 +199,11 @@ def start_mqtt_broker_container(docker_client, settings):
 def start_containers(docker_client, settings, vehicle, port):
     vehicle_id = f"{vehicle['company']}-{vehicle['name']}"
 
-    external_server_image_tag = (
+    external_server_image_full_name = (
         f"{settings['external-server-docker-image']}:{settings['external-server-docker-tag']}"
     )
     external_server_container = docker_client.containers.run(
-        external_server_image_tag,
+        external_server_image_full_name,
         detach=True,
         auto_remove=False,
         network_mode="host",
@@ -225,9 +225,9 @@ def start_containers(docker_client, settings, vehicle, port):
     )
     running_containers.append(external_server_container)
 
-    gateway_image_tag = f"{settings['gateway-docker-image']}:{settings['gateway-docker-tag']}"
+    gateway_image_full_name = f"{settings['gateway-docker-image']}:{settings['gateway-docker-tag']}"
     gateway_container = docker_client.containers.run(
-        gateway_image_tag,
+        gateway_image_full_name,
         detach=True,
         auto_remove=False,
         network_mode="host",
@@ -246,9 +246,9 @@ def start_containers(docker_client, settings, vehicle, port):
     container_id_name_dictionary[gateway_container.short_id] = f"{vehicle_id}-module-gateway"
     running_containers.append(gateway_container)
 
-    vehicle_image_tag = f"{settings['vehicle-docker-image']}:{settings['vehicle-docker-tag']}"
+    vehicle_image_full_name = f"{settings['vehicle-docker-image']}:{settings['vehicle-docker-tag']}"
     vehicle_container = docker_client.containers.run(
-        vehicle_image_tag,
+        vehicle_image_full_name,
         detach=True,
         auto_remove=False,
         network_mode="host",
