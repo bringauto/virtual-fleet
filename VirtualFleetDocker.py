@@ -16,12 +16,14 @@ from docker import DockerClient
 from docker.models.containers import Container
 
 
-NUMBER_OF_LOG_LAST_LINES_TO_SHOW = 5
 CONFIG_DIR = "./config"
 TMP_CONFIG_DIR = os.path.abspath(os.path.join(CONFIG_DIR, "tmp-configs"))
+
 EXTERNAL_SERVER_CONFIG = os.path.abspath(os.path.join(CONFIG_DIR, "external-server/config.json"))
 MODULE_GATEWAY_CONFIG = os.path.abspath(os.path.join(CONFIG_DIR, "module-gateway/config.json"))
 VERNEMQ_CONFIG = os.path.abspath(os.path.join(CONFIG_DIR, "vernemq"))
+
+NUMBER_OF_LOG_LAST_LINES_TO_SHOW = 5
 LOGS_DIR = "logs"
 
 
