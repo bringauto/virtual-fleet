@@ -1,0 +1,33 @@
+{
+  "general-settings": {
+    "log-path": "/home/bringauto/log",
+    "verbose": true
+  },
+  "internal-server-settings": {
+    "port": 1636
+  },
+  "module-paths": {
+    "1": "/home/bringauto/modules/mission_module/lib/libmission-module-gateway-shared.so",
+    "2": "/home/bringauto/modules/io_module/lib/libio-module-gateway-shared.so"
+  },
+  "external-connection" : {
+    "company" : "bringauto",
+    "vehicle-name" : "virtual_vehicle",
+    "endpoints" :
+    [
+      {
+        "protocol-type" : "mqtt",
+        "mqtt-settings" : {
+          "ssl" : false,
+          "ca-file" : "ca-chain.pem",
+          "client-cert" : "client.pem",
+          "client-key" : "client.key"
+        },
+        "server-ip": "0.0.0.0",
+        "port": 1883,
+        "modules": [ 1, 2 ]
+      }
+    ]
+  }
+}
+
